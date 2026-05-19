@@ -1,19 +1,2 @@
-# macOS
-.DS_Store
-**/.DS_Store
-
-# Cache runtime
-cache/ultimo_evento.json
-
-# Uploads (foto studenti — non versionare dati personali)
-uploads/studenti/*/
-
-# Script di utility
-scripts/
-
-# XAMPP / PHP
-*.log
-composer.phar
-vendor/
 composer.phar
 vendor/
