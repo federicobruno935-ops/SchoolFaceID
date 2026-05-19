@@ -1,0 +1,3 @@
+2026-05-18 10:05:57 | TO: federicobruno935@gmail.com | LINK: http://localhost/registro/studenti_area/reset_password.php?token=373d7d8860784fdbb81f83aa3bcb1e55fccf068abeccd8d64dd49813c6b481fa | SENT: yes
+2026-05-18 12:09:57 | TO: federico.bruno@studenti.iispascal.it | SENT: yes | LINK: http://localhost/registro/studenti_area/reset_password.php?token=73915e5f141933a7b4f133ea46b2b8d095b00f8944c02bd5587c89f18de4f395
+2026-05-18 15:13:23 | TO: alessandro.bagni@studenti.iispascal.it | SENT: yes | LINK: http://localhost/registro/studenti_area/reset_password.php?token=5ad495bbf36f4daab8a212ac56d70e89ec650d4fae9bbf3c892909de2e175569
