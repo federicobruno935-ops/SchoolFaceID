@@ -15,3 +15,5 @@ scripts/
 *.log
 composer.phar
 vendor/
+composer.phar
+vendor/
