@@ -13,3 +13,5 @@ scripts/
 
 # XAMPP / PHP
 *.log
+composer.phar
+vendor/
