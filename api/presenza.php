@@ -17,9 +17,8 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Methods: POST');
 header('Access-Control-Allow-Headers: Content-Type');
-$allowed = ['172.20.10.3', '127.0.0.1', '::1'];
-$ip = $_SERVER['REMOTE_ADDR'] ?? '';
-header('Access-Control-Allow-Origin: ' . (in_array($ip, $allowed) ? 'http://' . $ip : 'null'));
+// L'autenticazione avviene tramite API key; non blocchiamo per IP (il Raspberry si collega da internet).
+header('Access-Control-Allow-Origin: *');
 
 require_once '../includes/config.php';
 define('API_KEY', SCHOOLFACEID_API_KEY);

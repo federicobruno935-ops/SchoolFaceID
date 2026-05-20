@@ -2,3 +2,5 @@ composer.phar
 vendor/
 .DS_Store
 cache/ultimo_evento.json
+.env
+*.log
