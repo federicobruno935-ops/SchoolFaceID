@@ -2,7 +2,8 @@ deploy.sh
 composer.phar
 vendor/
 .DS_Store
-cache/ultimo_evento.json
+cache/*
+!cache/.gitkeep
 .env
 *.log
 .claude/
