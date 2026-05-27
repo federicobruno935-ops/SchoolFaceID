@@ -1,13 +1,13 @@
 <?php
 // includes/db.php — connessione PDO MySQL.
-// Le credenziali vengono lette da variabili d'ambiente (vedi config.php per il loader .env).
+// Le credenziali vengono lette da .env via la helper _env() definita in config.php.
 
 require_once __DIR__ . '/config.php';
 
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'registro_facciale');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') ?: '');
+define('DB_HOST', _env('DB_HOST', 'localhost'));
+define('DB_NAME', _env('DB_NAME', 'registro_facciale'));
+define('DB_USER', _env('DB_USER', 'root'));
+define('DB_PASS', _env('DB_PASS', ''));
 
 try {
     $pdo = new PDO(
