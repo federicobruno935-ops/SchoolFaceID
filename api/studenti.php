@@ -9,8 +9,8 @@ header('Content-Type: application/json');
 require_once '../includes/config.php';
 define('API_KEY', SCHOOLFACEID_API_KEY);
 
-// Verifica API key
-if (($_GET['api_key'] ?? '') !== API_KEY) {
+// Verifica API key (fail fast se non configurata lato server)
+if (API_KEY === '' || ($_GET['api_key'] ?? '') !== API_KEY) {
     http_response_code(401);
     echo json_encode(['errore' => 'API key non valida']);
     exit;

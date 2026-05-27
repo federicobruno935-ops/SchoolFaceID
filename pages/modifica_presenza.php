@@ -7,6 +7,10 @@ if (!isset($_SESSION['utente_id'])) {
 
 require_once '../includes/db.php';
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $successo = '';
 $errore   = '';
 
@@ -39,6 +43,10 @@ $presenza = $stmt->fetch();
 
 // SALVA MODIFICHE
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+        header('Location: registro.php');
+        exit;
+    }
     $stati_validi = ['presente', 'assente', 'ritardo', 'uscita_anticipata'];
     $stato        = in_array($_POST['stato'] ?? '', $stati_validi) ? $_POST['stato'] : 'assente';
     $ora_entrata  = $_POST['ora_entrata']  ?: null;
@@ -424,6 +432,7 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
     </div>
 
     <form method="POST" action="">
+      <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
       <div class="form-grid">
 
         <!-- STATO -->

@@ -40,8 +40,8 @@ if (!$data) {
     exit;
 }
 
-// Verifica API key
-if (($data['api_key'] ?? '') !== API_KEY) {
+// Verifica API key (fail fast se non configurata lato server)
+if (API_KEY === '' || ($data['api_key'] ?? '') !== API_KEY) {
     http_response_code(401);
     echo json_encode(['errore' => 'API key non valida']);
     exit;

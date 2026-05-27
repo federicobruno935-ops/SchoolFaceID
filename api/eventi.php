@@ -1,14 +1,20 @@
 <?php
 /**
  * api/eventi.php
- * Server-Sent Events — manda aggiornamenti in tempo reale alla dashboard
+ * Server-Sent Events — manda aggiornamenti in tempo reale alla dashboard.
+ * Richiede sessione autenticata (docente o studente).
  */
+
+session_start();
+if (!isset($_SESSION['utente_id']) && !isset($_SESSION['studente_id'])) {
+    http_response_code(401);
+    exit;
+}
 
 header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache');
 header('Connection: keep-alive');
 header('X-Accel-Buffering: no');
-header('Access-Control-Allow-Origin: *');
 
 $cache_file = __DIR__ . '/../cache/ultimo_evento.json';
 $ultimo_ts  = isset($_GET['since']) ? (int)$_GET['since'] : 0;

@@ -1,10 +1,12 @@
 <?php
-// includes/db.php
-// Connessione al database MySQL di XAMPP
+// includes/db.php — connessione PDO MySQL.
+// Le credenziali vengono lette da variabili d'ambiente (vedi config.php per il loader .env).
+
+require_once __DIR__ . '/config.php';
 
 define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'my_macarena');
-define('DB_USER', getenv('DB_USER') ?: 'macarena');
+define('DB_NAME', getenv('DB_NAME') ?: 'registro_facciale');
+define('DB_USER', getenv('DB_USER') ?: 'root');
 define('DB_PASS', getenv('DB_PASS') ?: '');
 
 try {
@@ -20,7 +22,7 @@ try {
     );
 } catch (PDOException $e) {
     http_response_code(500);
-    die(json_encode(['errore' => 'Connessione DB fallita: ' . $e->getMessage()]));
+    die(json_encode(['errore' => 'Connessione DB fallita']));
 }
 
 // Valida foto_path contro directory traversal — accetta solo percorsi interni a uploads/studenti/
