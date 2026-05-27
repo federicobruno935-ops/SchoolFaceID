@@ -1,0 +1,7 @@
+# Blocca accesso a file sensibili
+<FilesMatch "^\.(env|env\..*|gitignore|htaccess)$">
+    Require all denied
+</FilesMatch>
+
+# Blocca cartelle di config/version-control
+RedirectMatch 404 /\.git(/|$)
