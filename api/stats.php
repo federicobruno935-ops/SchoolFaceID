@@ -9,34 +9,47 @@ if (!isset($_SESSION['utente_id'])) {
 header('Content-Type: application/json');
 require_once '../includes/db.php';
 
-$oggi = date('Y-m-d');
+$oggi       = date('Y-m-d');
+$classe_sel = isset($_GET['classe']) && $_GET['classe'] !== '' ? (int)$_GET['classe'] : null;
+$filtro_sql = $classe_sel ? "AND u.classe_id = :cid" : '';
 
-// Contatori
-$totale = $pdo->query("SELECT COUNT(*) FROM utenti WHERE ruolo='studente' AND attivo=1")->fetchColumn();
+// Totale
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM utenti u WHERE u.ruolo='studente' AND u.attivo=1 " . ($classe_sel ? "AND u.classe_id = :cid" : ''));
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
+$totale = (int)$stmt->fetchColumn();
 
+// Counters
 $stmt = $pdo->prepare("
-    SELECT SUM(p.stato='presente') as presenti, SUM(p.stato='ritardo') as ritardi,
-           COUNT(DISTINCT p.studente_id) as con_presenza
+    SELECT
+        SUM(p.stato='presente')          AS presenti,
+        SUM(p.stato='ritardo')           AS ritardi,
+        SUM(p.stato='uscita_anticipata') AS uscite
     FROM presenze p
     INNER JOIN utenti u ON u.id = p.studente_id AND u.ruolo='studente' AND u.attivo=1
-    WHERE p.data=?
+    WHERE p.data = :data $filtro_sql
 ");
-$stmt->execute([$oggi]);
+$stmt->bindValue(':data', $oggi);
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
 $counts       = $stmt->fetch();
 $presenti     = (int)$counts['presenti'];
 $ritardi      = (int)$counts['ritardi'];
-$assenti      = max(0, (int)$totale - (int)$counts['con_presenza']);
+$uscite       = (int)$counts['uscite'];
+$assenti      = max(0, $totale - $presenti - $ritardi - $uscite);
 
 // Studenti con stato
 $stmt = $pdo->prepare("
     SELECT u.id, u.nome, u.cognome, u.foto_path,
            COALESCE(p.stato, 'assente') as stato
     FROM utenti u
-    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data = ?
-    WHERE u.ruolo = 'studente' AND u.attivo = 1
+    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data = :data
+    WHERE u.ruolo = 'studente' AND u.attivo = 1 $filtro_sql
     ORDER BY u.cognome, u.nome
 ");
-$stmt->execute([$oggi]);
+$stmt->bindValue(':data', $oggi);
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
 $studenti = $stmt->fetchAll();
 
 // Riconoscimenti recenti
@@ -51,10 +64,11 @@ $stmt2 = $pdo->query("
 $riconoscimenti = $stmt2->fetchAll();
 
 echo json_encode([
-    'totale'          => (int)$totale,
-    'presenti'        => (int)$presenti,
-    'assenti'         => (int)$assenti,
-    'ritardi'         => (int)$ritardi,
+    'totale'          => $totale,
+    'presenti'        => $presenti,
+    'assenti'         => $assenti,
+    'ritardi'         => $ritardi,
+    'uscite'          => $uscite,
     'studenti'        => $studenti,
     'riconoscimenti'  => $riconoscimenti,
 ]);

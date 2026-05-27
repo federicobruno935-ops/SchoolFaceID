@@ -6,34 +6,74 @@ if (!isset($_SESSION['utente_id'])) {
 }
 
 require_once '../includes/db.php';
+require_once '../includes/impostazioni.php';
+
+// Salvataggio impostazioni orario
+$msg_orario = '';
+$err_orario = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salva_orario'])) {
+    $nuovo_orario  = $_POST['ora_inizio_lezioni'] ?? '';
+    $nuovo_ritardo = (int)($_POST['minuti_ritardo'] ?? 0);
+    if (preg_match('/^\d{2}:\d{2}$/', $nuovo_orario) && $nuovo_ritardo >= 0 && $nuovo_ritardo <= 120) {
+        set_impostazioni([
+            'ora_inizio_lezioni' => $nuovo_orario . ':00',
+            'minuti_ritardo'     => $nuovo_ritardo,
+        ]);
+        $msg_orario = 'Orario aggiornato.';
+    } else {
+        $err_orario = 'Valori non validi.';
+    }
+}
+$imp = get_impostazioni();
 
 $oggi = date('Y-m-d');
 
-$totale = $pdo->query("SELECT COUNT(*) FROM utenti WHERE ruolo='studente' AND attivo=1")->fetchColumn();
+// Lista classi per filtro
+$classi = $pdo->query("SELECT * FROM classi ORDER BY nome")->fetchAll();
 
+// Filtro classe
+$classe_sel = isset($_GET['classe']) && $_GET['classe'] !== '' ? (int)$_GET['classe'] : null;
+$filtro_sql = $classe_sel ? "AND u.classe_id = :cid" : '';
+
+// Totale studenti (filtrato per classe se selezionata)
+$qt = "SELECT COUNT(*) FROM utenti u WHERE u.ruolo='studente' AND u.attivo=1 " . ($classe_sel ? "AND u.classe_id = :cid" : '');
+$stmt = $pdo->prepare($qt);
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
+$totale = (int)$stmt->fetchColumn();
+
+// Counter giornalieri (filtrati per classe se selezionata)
 $stmt = $pdo->prepare("
-    SELECT SUM(p.stato='presente') as presenti, SUM(p.stato='ritardo') as ritardi,
-           COUNT(DISTINCT p.studente_id) as con_presenza
+    SELECT
+        SUM(p.stato='presente')          AS presenti,
+        SUM(p.stato='ritardo')           AS ritardi,
+        SUM(p.stato='uscita_anticipata') AS uscite
     FROM presenze p
     INNER JOIN utenti u ON u.id = p.studente_id AND u.ruolo='studente' AND u.attivo=1
-    WHERE p.data=?
+    WHERE p.data = :data $filtro_sql
 ");
-$stmt->execute([$oggi]);
+$stmt->bindValue(':data', $oggi);
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
 $counts   = $stmt->fetch();
 $presenti = (int)$counts['presenti'];
 $ritardi  = (int)$counts['ritardi'];
-$assenti  = max(0, (int)$totale - (int)$counts['con_presenza']);
+$uscite   = (int)$counts['uscite'];
+$assenti  = max(0, $totale - $presenti - $ritardi - $uscite);
 
+// Lista studenti (filtrata per classe se selezionata)
 $stmt = $pdo->prepare("
     SELECT u.id, u.nome, u.cognome, u.foto_path, c.nome as classe_nome,
            COALESCE(p.stato, 'assente') as stato
     FROM utenti u
-    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data = ?
+    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data = :data
     LEFT JOIN classi c ON c.id = u.classe_id
-    WHERE u.ruolo = 'studente' AND u.attivo = 1
+    WHERE u.ruolo = 'studente' AND u.attivo = 1 $filtro_sql
     ORDER BY u.cognome, u.nome
 ");
-$stmt->execute([$oggi]);
+$stmt->bindValue(':data', $oggi);
+if ($classe_sel) $stmt->bindValue(':cid', $classe_sel, PDO::PARAM_INT);
+$stmt->execute();
 $studenti = $stmt->fetchAll();
 
 $cache_file = __DIR__ . '/../cache/ultimo_evento.json';
@@ -118,12 +158,11 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
 
     .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .nav-logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, #1e40af, #3b82f6);
-      border-radius: 10px;
+      width: 38px; height: 38px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; box-shadow: 0 0 20px rgba(59,130,246,0.35);
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.4));
     }
+    .nav-logo img { width: 100%; height: 100%; object-fit: contain; }
     .nav-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-white); }
     .nav-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 
@@ -188,9 +227,10 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
     /* ── STAT CARDS ─────────────────────────── */
     .stats {
       display: grid; grid-template-columns: repeat(4,1fr);
-      gap: 14px; margin-bottom: 28px;
+      gap: 14px; margin-bottom: 24px;
       animation: fadeUp .45s ease .05s both;
     }
+    @media (max-width: 900px) { .stats { grid-template-columns: repeat(2,1fr); } }
 
     .stat-card {
       background: var(--bg-card); border: 1px solid var(--border);
@@ -211,6 +251,7 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
     .stat-card.green  .stat-icon { background: var(--green-dim); }
     .stat-card.red    .stat-icon { background: var(--red-dim); }
     .stat-card.orange .stat-icon { background: var(--orange-dim); }
+    .stat-card.yellow .stat-icon { background: rgba(234,179,8,0.12); }
 
     .stat-label {
       font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
@@ -220,6 +261,7 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
     .stat-card.green  .stat-label { color: var(--green); }
     .stat-card.red    .stat-label { color: var(--red); }
     .stat-card.orange .stat-label { color: var(--orange); }
+    .stat-card.yellow .stat-label { color: #eab308; }
 
     .stat-value {
       font-size: 40px; font-weight: 700;
@@ -264,10 +306,17 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
       background: var(--bg-card2); border: 1px solid var(--border);
       border-radius: var(--radius-sm); padding: 16px 12px 14px;
       text-align: center; position: relative; overflow: hidden;
-      transition: border-color .25s, transform .2s;
-      cursor: default;
+      transition: border-color .25s, transform .2s, box-shadow .2s;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
     }
-    .studente-card:hover { border-color: var(--border-md); transform: translateY(-1px); }
+    .studente-card:hover {
+      border-color: rgba(59,130,246,0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(59,130,246,0.1);
+    }
 
     .studente-card::after {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
@@ -380,13 +429,39 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
       from { opacity:0; transform:translateX(16px); }
       to   { opacity:1; transform:translateX(0); }
     }
+
+    /* Form orario */
+    .orario-form { display: flex; flex-direction: column; gap: 14px; }
+    .orario-field { display: flex; flex-direction: column; gap: 6px; }
+    .orario-field label {
+      font-size: 11px; font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim);
+    }
+    .orario-field input {
+      background: var(--bg-card2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace; font-size: 14px;
+      color: var(--text-white); outline: none;
+      transition: border-color 0.2s; color-scheme: dark;
+    }
+    .orario-field input:focus { border-color: rgba(59,130,246,0.5); box-shadow: 0 0 0 3px rgba(59,130,246,0.08); }
+    .orario-info { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+    .orario-submit {
+      padding: 10px 14px; background: var(--blue); color: #fff;
+      border: none; border-radius: 9px; cursor: pointer;
+      font-family: 'Sora', sans-serif; font-size: 13px; font-weight: 600;
+      transition: background 0.2s; box-shadow: 0 4px 14px rgba(59,130,246,0.25);
+    }
+    .orario-submit:hover { background: #2563eb; }
+    .orario-msg.ok { color: var(--green); font-size: 12px; }
+    .orario-msg.err { color: var(--red); font-size: 12px; }
   </style>
 </head>
 <body>
 
 <nav class="navbar">
   <a class="nav-brand" href="dashboard.php">
-    <div class="nav-logo">🎓</div>
+    <div class="nav-logo"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
     <div>
       <div class="nav-title">SchoolFaceID</div>
       <div class="nav-sub"><?= htmlspecialchars($_SESSION['utente_nome']) ?></div>
@@ -401,11 +476,11 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
 
   <div class="nav-right">
     <span class="nav-date"><?= $data_fmt ?></span>
-    <div class="nav-status <?= $raspberry_online ? 'online' : 'offline' ?>">
+    <div id="nav-status" class="nav-status <?= $raspberry_online ? 'online' : 'offline' ?>">
       <div class="nav-status-dot"></div>
-      <?= $raspberry_online ? 'Sistema attivo' : 'Offline' ?>
+      <span id="nav-status-text"><?= $raspberry_online ? 'Sistema attivo' : 'Offline' ?></span>
     </div>
-    <a href="logout.php" class="btn-logout">Esci</a>
+    <a href="logout.php" class="btn-logout">Logout</a>
   </div>
 </nav>
 
@@ -413,15 +488,10 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
 
   <div class="page-header">
     <h1>Presenze di oggi</h1>
-    <p>Monitoraggio in tempo reale — aggiornamento automatico ogni 15 secondi</p>
+    <p>Monitoraggio in tempo reale</p>
   </div>
 
   <div class="stats">
-    <div class="stat-card blue">
-      <div class="stat-icon">👥</div>
-      <div class="stat-label">Totale studenti</div>
-      <div class="stat-value" id="stat-totale"><?= $totale ?></div>
-    </div>
     <div class="stat-card green">
       <div class="stat-icon">✓</div>
       <div class="stat-label">Presenti</div>
@@ -438,6 +508,11 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
       <div class="stat-label">In ritardo</div>
       <div class="stat-value" id="stat-ritardi"><?= $ritardi ?></div>
     </div>
+    <div class="stat-card yellow">
+      <div class="stat-icon">🚪</div>
+      <div class="stat-label">Uscite anticipate</div>
+      <div class="stat-value" id="stat-uscite"><?= $uscite ?></div>
+    </div>
   </div>
 
   <div class="grid-main">
@@ -445,26 +520,42 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
     <div class="card">
       <div class="card-header">
         <div class="card-title">Studenti registrati</div>
-        <div class="card-badge"><?= count($studenti) ?> totale</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <form method="GET" action="" style="display:flex; align-items:center; gap:8px;">
+            <label for="classe-select" style="font-size:11px; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Classe:</label>
+            <select name="classe" id="classe-select" onchange="this.form.submit()"
+                    style="background:var(--bg-card2); border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-family:'Sora',sans-serif; font-size:13px; color:var(--text-white); outline:none; cursor:pointer;">
+              <option value="">Tutte</option>
+              <?php foreach ($classi as $c): ?>
+                <option value="<?= $c['id'] ?>" <?= $classe_sel == $c['id'] ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($c['nome']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </form>
+          <div class="card-badge"><?= count($studenti) ?> totale</div>
+        </div>
       </div>
       <div class="studenti-grid" id="studenti-grid">
         <?php foreach ($studenti as $s):
           $iniziali = strtoupper(substr($s['nome'],0,1).substr($s['cognome'],0,1));
           $stato    = $s['stato'];
           $fp       = foto_path_sicuro($s['foto_path']);
-          $ft       = $fp ? filemtime(dirname(__DIR__).'/'.$fp) : 0;
+          $ft       = ($fp && file_exists(dirname(__DIR__).'/'.$fp)) ? filemtime(dirname(__DIR__).'/'.$fp) : 0;
         ?>
-          <div class="studente-card stato-<?= $stato ?>" id="studente-<?= $s['id'] ?>">
+          <a class="studente-card stato-<?= $stato ?>" id="studente-<?= $s['id'] ?>"
+             href="studente_profilo.php?id=<?= $s['id'] ?>"
+             title="Vedi profilo di <?= htmlspecialchars($s['nome'].' '.$s['cognome']) ?>">
             <div class="avatar">
               <?php if ($fp): ?>
-                <img src="../<?= htmlspecialchars($fp) ?>?v=<?= $ft ?>" alt="">
+                <img src="../<?= htmlspecialchars($fp) ?><?= $ft ? '?v='.$ft : '' ?>" alt="">
               <?php else: ?>
                 <?= $iniziali ?>
               <?php endif; ?>
             </div>
             <div class="studente-nome"><?= htmlspecialchars($s['nome'].' '.$s['cognome']) ?></div>
             <span class="badge badge-<?= $stato ?>"><?= str_replace('_',' ',$stato) ?></span>
-          </div>
+          </a>
         <?php endforeach; ?>
       </div>
     </div>
@@ -514,22 +605,50 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Orario lezioni</div>
+        </div>
+        <form method="POST" action="" class="orario-form">
+          <div class="orario-field">
+            <label for="ora_inizio_lezioni">Inizio lezioni</label>
+            <input type="time" id="ora_inizio_lezioni" name="ora_inizio_lezioni"
+                   value="<?= htmlspecialchars(substr($imp['ora_inizio_lezioni'], 0, 5)) ?>" required>
+          </div>
+          <div class="orario-field">
+            <label for="minuti_ritardo">Tolleranza ritardo (minuti)</label>
+            <input type="number" id="minuti_ritardo" name="minuti_ritardo"
+                   value="<?= (int)$imp['minuti_ritardo'] ?>" min="0" max="120" required>
+          </div>
+          <div class="orario-info">
+            Soglia ritardo attuale: <strong style="color:var(--text-white)"><?= date('H:i', strtotime($imp['ora_inizio_lezioni']) + (int)$imp['minuti_ritardo'] * 60) ?></strong>
+          </div>
+          <button type="submit" name="salva_orario" value="1" class="orario-submit">Salva orario</button>
+          <?php if ($msg_orario): ?><div class="orario-msg ok">✓ <?= htmlspecialchars($msg_orario) ?></div><?php endif; ?>
+          <?php if ($err_orario): ?><div class="orario-msg err">✗ <?= htmlspecialchars($err_orario) ?></div><?php endif; ?>
+        </form>
+      </div>
+
     </div>
   </div>
 
 </main>
 
 <script>
-  let ultimoTs = 0;
+  // Inizializza a "adesso" così le notifiche appaiono solo per eventi DOPO il page load,
+  // non per quello in cache che è già stato visto (es. al refresh della pagina).
+  let ultimoTs = Math.floor(Date.now() / 1000);
+
+  const classeFiltro = new URLSearchParams(window.location.search).get('classe') || '';
 
   function aggiornaDashboard() {
-    fetch('../api/stats.php')
+    fetch('../api/stats.php' + (classeFiltro ? '?classe=' + encodeURIComponent(classeFiltro) : ''))
       .then(r => r.json())
       .then(data => {
         aggiornaValore('stat-presenti', data.presenti);
         aggiornaValore('stat-assenti',  data.assenti);
         aggiornaValore('stat-ritardi',  data.ritardi);
-        aggiornaValore('stat-totale',   data.totale);
+        aggiornaValore('stat-uscite',   data.uscite);
 
         const bar = document.getElementById('stat-bar-presenti');
         if (bar && data.totale > 0) bar.style.width = Math.round(data.presenti / data.totale * 100) + '%';
@@ -573,13 +692,24 @@ $data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date(
     if (card) { card.classList.add('updated'); setTimeout(() => card.classList.remove('updated'), 400); }
   }
 
+  function aggiornaStatusOnline() {
+    const ns = document.getElementById('nav-status');
+    const nt = document.getElementById('nav-status-text');
+    if (ns && nt) {
+      ns.classList.remove('offline');
+      ns.classList.add('online');
+      nt.textContent = 'Sistema attivo';
+    }
+  }
+
   function connetti() {
     const source = new EventSource('../api/eventi.php?since=' + ultimoTs);
     source.onmessage = function(e) {
       const data = JSON.parse(e.data);
-      if (!data.studente) return;
       if (data.tipo === 'reconnect') { source.close(); setTimeout(connetti, 1000); return; }
+      if (!data.studente) return;
       ultimoTs = data.timestamp;
+      aggiornaStatusOnline();        // ← Raspberry attivo, aggiorna badge
       mostraNotifica(data);
       aggiornaDashboard();
     };

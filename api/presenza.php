@@ -87,9 +87,11 @@ if (!$studente) {
 $oggi      = date('Y-m-d', strtotime($timestamp));
 $ora       = date('H:i:s', strtotime($timestamp));
 
-// Orario scolastico (configurabile)
-$ora_inizio_lezioni = '08:00:00';
-$minuti_ritardo     = 15; // dopo quanti minuti si considera ritardo
+// Orario scolastico — letto dalle impostazioni configurabili dal docente
+require_once '../includes/impostazioni.php';
+$imp                = get_impostazioni();
+$ora_inizio_lezioni = $imp['ora_inizio_lezioni'];
+$minuti_ritardo     = (int)$imp['minuti_ritardo'];
 
 // Calcola stato
 $stato = 'presente';

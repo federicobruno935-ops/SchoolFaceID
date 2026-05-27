@@ -7,85 +7,117 @@ if (!isset($_SESSION['utente_id'])) {
 
 require_once '../includes/db.php';
 
-$successo = '';
-$errore   = '';
+// Filtri
+$cerca       = $_GET['cerca']    ?? '';
+$classe_sel  = $_GET['classe']   ?? '';
+$periodo_sel = $_GET['periodo']  ?? '30';   // default ultimi 30 giorni
+$classi      = $pdo->query("SELECT * FROM classi ORDER BY nome")->fetchAll();
 
-// AGGIUNTA STUDENTE
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['azione']) && $_POST['azione'] === 'aggiungi') {
-    $nome      = trim($_POST['nome'] ?? '');
-    $cognome   = trim($_POST['cognome'] ?? '');
-    $email     = trim($_POST['email'] ?? '');
-    $classe_id = $_POST['classe_id'] ?? null;
-    $foto_path = null;
+// Periodo → intervallo date
+$periodi = [
+    '7'    => ['Ultimi 7 giorni',     7],
+    '30'   => ['Ultimi 30 giorni',    30],
+    '90'   => ['Ultimi 3 mesi',       90],
+    '365'  => ['Anno scolastico',     365],
+    'all'  => ['Tutti i giorni',      9999],
+];
+if (!isset($periodi[$periodo_sel])) $periodo_sel = '30';
+$periodo_giorni = $periodi[$periodo_sel][1];
+$data_inizio    = date('Y-m-d', strtotime("-{$periodo_giorni} days"));
 
-    if ($nome && $cognome) {
-        // Validazione email
-        if ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errore = 'Indirizzo email non valido.';
-        }
-
-        // Upload foto
-        if (!$errore && !empty($_FILES['foto']['name'])) {
-            $upload_dir = __DIR__ . '/../uploads/studenti/';
-            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
-
-            $ext      = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
-            $permessi = ['jpg','jpeg','png'];
-
-            if (in_array($ext, $permessi) && $_FILES['foto']['size'] < 5 * 1024 * 1024) {
-                $filename = uniqid('stu_') . '.' . $ext;
-                $dest     = $upload_dir . $filename;
-                if (move_uploaded_file($_FILES['foto']['tmp_name'], $dest)) {
-                    $foto_path = 'uploads/studenti/' . $filename;
-                }
-            } else {
-                $errore = 'Foto non valida. Usa JPG o PNG, max 5MB.';
-            }
-        }
-
-        if (!$errore) {
-            // Password default: Nome1234 — lo studente può cambiarla con "password dimenticata"
-            $password_default = ucfirst(strtolower($nome)) . '1234';
-            $password_hash    = password_hash($password_default, PASSWORD_DEFAULT);
-
-            $stmt = $pdo->prepare("INSERT INTO utenti (nome, cognome, email, password_hash, ruolo, classe_id, foto_path, attivo) VALUES (?, ?, ?, ?, 'studente', ?, ?, 1)");
-            $stmt->execute([$nome, $cognome, $email ?: null, $password_hash, $classe_id ?: null, $foto_path]);
-            $successo = "Studente $nome $cognome aggiunto. Password temporanea: <strong>{$password_default}</strong>";
-        }
-    } else {
-        $errore = 'Nome e cognome sono obbligatori.';
-    }
-}
-
-
-// Lista studenti
-$cerca      = $_GET['cerca'] ?? '';
-$classe_sel = $_GET['classe'] ?? '';
-$classi     = $pdo->query("SELECT * FROM classi ORDER BY nome")->fetchAll();
-
+// WHERE studenti
 $where  = ["u.ruolo = 'studente'", "u.attivo = 1"];
 $params = [];
 
 if ($cerca) {
-    $where[]          = "(u.nome LIKE :cerca OR u.cognome LIKE :cerca)";
-    $params[':cerca'] = "%$cerca%";
+    $where[]            = "(LOWER(u.nome) LIKE :cerca_n OR LOWER(u.cognome) LIKE :cerca_c)";
+    $cerca_lower        = '%' . mb_strtolower($cerca, 'UTF-8') . '%';
+    $params[':cerca_n'] = $cerca_lower;
+    $params[':cerca_c'] = $cerca_lower;
 }
 if ($classe_sel) {
     $where[]              = "u.classe_id = :classe_id";
     $params[':classe_id'] = $classe_sel;
 }
-
 $where_sql = implode(' AND ', $where);
-$stmt      = $pdo->prepare("
+
+// Lista studenti con stats per il periodo
+// Filtro data direttamente nel JOIN per usare il placeholder solo una volta
+$stmt = $pdo->prepare("
     SELECT u.*, c.nome AS classe_nome,
-           (SELECT COUNT(*) FROM presenze p WHERE p.studente_id = u.id AND p.stato = 'presente') AS tot_presenze
+           COALESCE(SUM(p.stato='presente'),          0) AS p_presente,
+           COALESCE(SUM(p.stato='assente'),           0) AS p_assente,
+           COALESCE(SUM(p.stato='ritardo'),           0) AS p_ritardo,
+           COALESCE(SUM(p.stato='uscita_anticipata'), 0) AS p_uscita
     FROM utenti u
-    LEFT JOIN classi c ON c.id = u.classe_id
+    LEFT JOIN classi c   ON c.id = u.classe_id
+    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data >= :d_inizio
     WHERE $where_sql
+    GROUP BY u.id
     ORDER BY u.cognome, u.nome
 ");
-$stmt->execute($params);
+$stmt->bindValue(':d_inizio', $data_inizio);
+foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+$stmt->execute();
 $studenti = $stmt->fetchAll();
+
+// Stats aggregate
+$tot_presenti = 0; $tot_assenti = 0; $tot_ritardi = 0; $tot_uscite = 0;
+foreach ($studenti as $s) {
+    $tot_presenti += (int)$s['p_presente'];
+    $tot_assenti  += (int)$s['p_assente'];
+    $tot_ritardi  += (int)$s['p_ritardo'];
+    $tot_uscite   += (int)$s['p_uscita'];
+}
+$tot_rilevazioni = $tot_presenti + $tot_assenti + $tot_ritardi + $tot_uscite;
+$perc_media = $tot_rilevazioni > 0 ? round($tot_presenti * 100 / $tot_rilevazioni) : 0;
+
+// Trend giornaliero per il line chart
+$ids = array_column($studenti, 'id');
+$trend = [];
+if (!empty($ids)) {
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("
+        SELECT data, stato, COUNT(*) AS tot
+        FROM presenze
+        WHERE studente_id IN ($placeholders) AND data >= ?
+        GROUP BY data, stato
+        ORDER BY data ASC
+    ");
+    $stmt->execute([...$ids, $data_inizio]);
+    foreach ($stmt->fetchAll() as $r) {
+        $trend[$r['data']][$r['stato']] = (int)$r['tot'];
+    }
+}
+
+// Distribuzione per classe
+$studenti_per_classe = [];
+foreach ($studenti as $s) {
+    $cn = $s['classe_nome'] ?? 'Senza classe';
+    $studenti_per_classe[$cn] = ($studenti_per_classe[$cn] ?? 0) + 1;
+}
+
+// Top assenze
+$top_assenze = $studenti;
+usort($top_assenze, fn($a, $b) => (int)$b['p_assente'] - (int)$a['p_assente']);
+$top_assenze = array_slice(array_filter($top_assenze, fn($s) => $s['p_assente'] > 0), 0, 5);
+
+// Top ritardi
+$top_ritardi = $studenti;
+usort($top_ritardi, fn($a, $b) => (int)$b['p_ritardo'] - (int)$a['p_ritardo']);
+$top_ritardi = array_slice(array_filter($top_ritardi, fn($s) => $s['p_ritardo'] > 0), 0, 5);
+
+// Stato Raspberry + data formattata
+$cache_file = __DIR__ . '/../cache/ultimo_evento.json';
+$raspberry_online = false;
+if (file_exists($cache_file)) {
+    $raw = file_get_contents($cache_file);
+    $ev  = $raw ? json_decode($raw, true) : null;
+    $raspberry_online = is_array($ev) && isset($ev['timestamp']) && (time() - $ev['timestamp']) < 7200;
+}
+$giorni_it = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
+$mesi_it   = ['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+$data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date('n')];
 ?>
 <!DOCTYPE html>
 <html lang="it">
@@ -95,6 +127,7 @@ $studenti = $stmt->fetchAll();
   <title>SchoolFaceID — Studenti</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -146,12 +179,11 @@ $studenti = $stmt->fetchAll();
     }
     .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .nav-logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, #1e40af, #3b82f6);
-      border-radius: 10px;
+      width: 38px; height: 38px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; box-shadow: 0 0 20px rgba(59,130,246,0.35);
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.4));
     }
+    .nav-logo img { width: 100%; height: 100%; object-fit: contain; }
     .nav-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-white); }
     .nav-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
     .nav-links { display: flex; gap: 2px; }
@@ -165,6 +197,15 @@ $studenti = $stmt->fetchAll();
       background: rgba(59,130,246,0.12); color: var(--blue);
       box-shadow: inset 0 0 0 1px rgba(59,130,246,0.2);
     }
+    .nav-right { display: flex; align-items: center; gap: 14px; }
+    .nav-date { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 20px; }
+    .nav-status.online  { background: rgba(34,197,94,0.12); color: var(--green); }
+    .nav-status.offline { background: rgba(239,68,68,0.12); color: var(--red); }
+    .nav-status-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .online  .nav-status-dot { background: var(--green); animation: pulse 2s infinite; }
+    .offline .nav-status-dot { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
     .btn-logout {
       padding: 6px 16px; background: transparent;
       border: 1px solid var(--border); border-radius: 8px;
@@ -267,12 +308,17 @@ $studenti = $stmt->fetchAll();
       border: 1px solid var(--border);
       border-radius: 16px; padding: 24px 20px;
       text-align: center;
-      transition: border-color 0.2s, transform 0.2s;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
       position: relative;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      cursor: pointer;
     }
     .studente-card:hover {
-      border-color: rgba(255,255,255,0.12);
+      border-color: rgba(59,130,246,0.4);
       transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(59,130,246,0.08);
     }
 
     .avatar {
@@ -315,6 +361,94 @@ $studenti = $stmt->fetchAll();
       padding: 60px 20px; color: var(--text-dim);
     }
     .empty-state p { font-size: 14px; margin-top: 8px; }
+
+    /* STATS */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(5, 1fr);
+      gap: 12px; margin-bottom: 24px;
+      animation: fadeUp 0.5s ease 0.07s both;
+    }
+    @media (max-width: 1000px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+    .stat-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px 20px;
+      position: relative; overflow: hidden;
+    }
+    .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
+    .stat-card.blue::before { background: var(--blue); }
+    .stat-card.green::before { background: var(--green); }
+    .stat-card.red::before { background: var(--red); }
+    .stat-card.orange::before { background: var(--orange); }
+    .stat-card.yellow::before { background: #eab308; }
+    .stat-label {
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .stat-card.blue .stat-label { color: var(--blue); }
+    .stat-card.green .stat-label { color: var(--green); }
+    .stat-card.red .stat-label { color: var(--red); }
+    .stat-card.orange .stat-label { color: var(--orange); }
+    .stat-card.yellow .stat-label { color: #eab308; }
+    .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -0.04em; }
+
+    /* CHARTS */
+    .charts-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px; margin-bottom: 24px;
+      animation: fadeUp 0.5s ease 0.1s both;
+    }
+    @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px;
+    }
+    .chart-title {
+      font-size: 14px; font-weight: 600; margin-bottom: 16px;
+      letter-spacing: -0.01em;
+    }
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* TOP */
+    .top-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px; margin-bottom: 24px;
+      animation: fadeUp 0.5s ease 0.12s both;
+    }
+    @media (max-width: 900px) { .top-row { grid-template-columns: 1fr; } }
+    .top-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px;
+    }
+    .top-list { display: flex; flex-direction: column; gap: 8px; }
+    .top-item {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg-card2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 14px;
+      text-decoration: none; color: inherit;
+      transition: border-color 0.2s;
+    }
+    .top-item:hover { border-color: rgba(255,255,255,0.15); }
+    .top-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--bg-deep); display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted); flex-shrink: 0;
+    }
+    .top-nome { flex: 1; font-size: 13px; font-weight: 500; }
+    .top-classe { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+    .top-count {
+      font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700;
+    }
+    .top-count.red { color: var(--red); }
+    .top-count.orange { color: var(--orange); }
+    .top-empty { color: var(--text-dim); font-size: 13px; padding: 16px 0; text-align: center; }
+
+    /* mini progress bar nelle card studente */
+    .perc-bar { height: 4px; background: var(--bg-card2); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+    .perc-fill { height: 100%; transition: width 0.6s; }
+    .perc-fill.alta { background: var(--green); }
+    .perc-fill.media { background: var(--orange); }
+    .perc-fill.bassa { background: var(--red); }
 
     /* MODAL AGGIUNGI */
     .modal-overlay {
@@ -417,7 +551,7 @@ $studenti = $stmt->fetchAll();
 <!-- NAVBAR -->
 <nav class="navbar">
   <a class="nav-brand" href="dashboard.php">
-    <div class="nav-logo">🎓</div>
+    <div class="nav-logo"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
     <div>
       <div class="nav-title">SchoolFaceID</div>
       <div class="nav-sub"><?= htmlspecialchars($_SESSION['utente_nome']) ?></div>
@@ -428,8 +562,13 @@ $studenti = $stmt->fetchAll();
     <a href="registro.php"  class="nav-link">Registro</a>
     <a href="studenti.php"  class="nav-link active">Studenti</a>
   </div>
-  <div>
-    <a href="logout.php" class="btn-logout">Esci</a>
+  <div class="nav-right">
+    <span class="nav-date"><?= $data_fmt ?></span>
+    <div id="nav-status" class="nav-status <?= $raspberry_online ? 'online' : 'offline' ?>">
+      <div class="nav-status-dot"></div>
+      <span id="nav-status-text"><?= $raspberry_online ? 'Sistema attivo' : 'Offline' ?></span>
+    </div>
+    <a href="logout.php" class="btn-logout">Logout</a>
   </div>
 </nav>
 
@@ -440,17 +579,7 @@ $studenti = $stmt->fetchAll();
       <h1>Gestione studenti</h1>
       <p class="page-subtitle"><?= count($studenti) ?> studenti registrati nel sistema</p>
     </div>
-    <button class="btn-nuovo" onclick="document.getElementById('modalAggiungi').classList.add('open')">
-      + Nuovo studente
-    </button>
   </div>
-
-  <?php if ($successo): ?>
-    <div class="alert alert-success"><?= htmlspecialchars($successo) ?></div>
-  <?php endif; ?>
-  <?php if ($errore): ?>
-    <div class="alert alert-error"><?= htmlspecialchars($errore) ?></div>
-  <?php endif; ?>
 
   <!-- FILTRI -->
   <form method="GET" action="">
@@ -470,9 +599,95 @@ $studenti = $stmt->fetchAll();
           <?php endforeach; ?>
         </select>
       </div>
+      <div class="filter-group">
+        <label>Periodo</label>
+        <select name="periodo">
+          <?php foreach ($periodi as $key => [$label, $g]): ?>
+            <option value="<?= $key ?>" <?= (string)$periodo_sel === (string)$key ? 'selected' : '' ?>><?= $label ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
       <button type="submit" class="btn-filter">Filtra</button>
     </div>
   </form>
+
+  <!-- STATS AGGREGATE -->
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <div class="stat-label">% Presenze media</div>
+      <div class="stat-value"><?= $perc_media ?>%</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Presenze</div>
+      <div class="stat-value"><?= $tot_presenti ?></div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Assenze</div>
+      <div class="stat-value"><?= $tot_assenti ?></div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-label">Ritardi</div>
+      <div class="stat-value"><?= $tot_ritardi ?></div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Uscite anticipate</div>
+      <div class="stat-value"><?= $tot_uscite ?></div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title">Distribuzione stati (<?= htmlspecialchars($periodi[$periodo_sel][0]) ?>)</div>
+      <div class="chart-wrap"><canvas id="chart-stati"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Andamento % presenze (giorni di scuola)</div>
+      <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- TOP -->
+  <div class="top-row">
+    <div class="top-card">
+      <div class="chart-title">Top 5 assenze</div>
+      <div class="top-list">
+        <?php if (empty($top_assenze)): ?>
+          <div class="top-empty">Nessuna assenza nel periodo.</div>
+        <?php else: ?>
+          <?php foreach ($top_assenze as $i => $s): ?>
+            <a href="studente_profilo.php?id=<?= $s['id'] ?>" class="top-item">
+              <div class="top-num"><?= $i + 1 ?></div>
+              <div style="flex:1;">
+                <div class="top-nome"><?= htmlspecialchars($s['cognome'] . ' ' . $s['nome']) ?></div>
+                <div class="top-classe"><?= htmlspecialchars($s['classe_nome'] ?? '—') ?></div>
+              </div>
+              <div class="top-count red"><?= $s['p_assente'] ?></div>
+            </a>
+          <?php endforeach; ?>
+        <?php endif; ?>
+      </div>
+    </div>
+    <div class="top-card">
+      <div class="chart-title">Top 5 ritardi</div>
+      <div class="top-list">
+        <?php if (empty($top_ritardi)): ?>
+          <div class="top-empty">Nessun ritardo nel periodo.</div>
+        <?php else: ?>
+          <?php foreach ($top_ritardi as $i => $s): ?>
+            <a href="studente_profilo.php?id=<?= $s['id'] ?>" class="top-item">
+              <div class="top-num"><?= $i + 1 ?></div>
+              <div style="flex:1;">
+                <div class="top-nome"><?= htmlspecialchars($s['cognome'] . ' ' . $s['nome']) ?></div>
+                <div class="top-classe"><?= htmlspecialchars($s['classe_nome'] ?? '—') ?></div>
+              </div>
+              <div class="top-count orange"><?= $s['p_ritardo'] ?></div>
+            </a>
+          <?php endforeach; ?>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
 
   <!-- GRIGLIA -->
   <div class="studenti-grid">
@@ -484,15 +699,17 @@ $studenti = $stmt->fetchAll();
     <?php else: ?>
       <?php foreach ($studenti as $s):
         $iniziali = strtoupper(substr($s['nome'],0,1) . substr($s['cognome'],0,1));
+        $foto     = foto_path_sicuro($s['foto_path']);
+        $foto_v   = ($foto && file_exists(dirname(__DIR__).'/'.$foto)) ? filemtime(dirname(__DIR__).'/'.$foto) : '';
       ?>
-      <div class="studente-card">
+      <a class="studente-card" href="studente_profilo.php?id=<?= $s['id'] ?>">
         <?php if (!$s['foto_path']): ?>
           <span class="no-foto-badge">no foto</span>
         <?php endif; ?>
 
         <div class="avatar">
-          <?php if ($s['foto_path']): ?>
-            <img src="../<?= htmlspecialchars(foto_path_sicuro($s['foto_path'])) ?>?v=<?= filemtime(dirname(__DIR__).'/'.foto_path_sicuro($s['foto_path'])) ?>" alt="">
+          <?php if ($foto): ?>
+            <img src="../<?= htmlspecialchars($foto) ?><?= $foto_v ? '?v=' . $foto_v : '' ?>" alt="">
           <?php else: ?>
             <?= $iniziali ?>
           <?php endif; ?>
@@ -500,86 +717,125 @@ $studenti = $stmt->fetchAll();
 
         <div class="studente-nome"><?= htmlspecialchars($s['cognome'] . ' ' . $s['nome']) ?></div>
         <div class="studente-classe"><?= htmlspecialchars($s['classe_nome'] ?? 'Nessuna classe') ?></div>
+        <?php
+          $s_tot = (int)$s['p_presente'] + (int)$s['p_assente'] + (int)$s['p_ritardo'] + (int)$s['p_uscita'];
+          $s_perc = $s_tot > 0 ? round((int)$s['p_presente'] * 100 / $s_tot) : 0;
+          $cls = $s_perc >= 75 ? 'alta' : ($s_perc >= 50 ? 'media' : 'bassa');
+        ?>
         <div class="presenze-count">
-          Presenze: <strong><?= $s['tot_presenze'] ?></strong>
+          <strong style="color:var(--text-white);"><?= $s_perc ?>%</strong> presenze
+          <span style="color:var(--text-dim);">· <?= $s['p_presente'] ?>/<?= $s_tot ?></span>
         </div>
+        <div class="perc-bar"><div class="perc-fill <?= $cls ?>" style="width:<?= $s_perc ?>%"></div></div>
 
-      </div>
+      </a>
       <?php endforeach; ?>
     <?php endif; ?>
   </div>
 
 </main>
 
-<!-- MODAL AGGIUNGI STUDENTE -->
-<div class="modal-overlay" id="modalAggiungi">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title">Nuovo studente</span>
-      <button class="modal-close" onclick="document.getElementById('modalAggiungi').classList.remove('open')">✕</button>
-    </div>
-
-    <form method="POST" action="" enctype="multipart/form-data">
-      <input type="hidden" name="azione" value="aggiungi"/>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Nome *</label>
-          <input type="text" name="nome" placeholder="Mario" required/>
-        </div>
-        <div class="form-group">
-          <label>Cognome *</label>
-          <input type="text" name="cognome" placeholder="Rossi" required/>
-        </div>
-        <div class="form-group">
-          <label>Email</label>
-          <input type="email" name="email" placeholder="mario@scuola.it"/>
-        </div>
-        <div class="form-group">
-          <label>Classe</label>
-          <select name="classe_id">
-            <option value="">Nessuna</option>
-            <?php foreach ($classi as $c): ?>
-              <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['nome']) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-        <div class="form-group form-full">
-          <label>Foto (per riconoscimento facciale)</label>
-          <div class="upload-area" id="uploadArea">
-            <input type="file" name="foto" accept="image/jpeg,image/png" onchange="aggiornaFoto(this)"/>
-            <div class="upload-icon" id="uploadIcon">📷</div>
-            <div class="upload-text" id="uploadText"><strong>Clicca</strong> per caricare una foto</div>
-            <div class="upload-hint">JPG o PNG · max 5MB · 1 volto visibile</div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn-cancel" onclick="document.getElementById('modalAggiungi').classList.remove('open')">
-          Annulla
-        </button>
-        <button type="submit" class="btn-submit">Aggiungi studente</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <script>
-  function aggiornaFoto(input) {
-    if (input.files && input.files[0]) {
-      const nome = input.files[0].name;
-      document.getElementById('uploadIcon').textContent = '✅';
-      document.getElementById('uploadText').innerHTML = '<strong>' + nome + '</strong>';
-    }
-  }
+  Chart.defaults.color = '#6b7fa3';
+  Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+  Chart.defaults.font.family = 'Sora, sans-serif';
 
-  // Chiudi modal cliccando fuori
-  document.getElementById('modalAggiungi').addEventListener('click', function(e) {
-    if (e.target === this) this.classList.remove('open');
+  // Distribuzione stati (doughnut)
+  new Chart(document.getElementById('chart-stati'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Presenze', 'Assenze', 'Ritardi', 'Uscite anticipate'],
+      datasets: [{
+        data: [<?= $tot_presenti ?>, <?= $tot_assenti ?>, <?= $tot_ritardi ?>, <?= $tot_uscite ?>],
+        backgroundColor: ['#22c55e', '#ef4444', '#f97316', '#eab308'],
+        borderColor: '#0e1829',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: 11 } } }
+      }
+    }
   });
 
-  <?php if ($errore && isset($_POST['azione'])): ?>
-    document.getElementById('modalAggiungi').classList.add('open');
-  <?php endif; ?>
+  // Trend giornaliero — % presenze per giorno (solo giorni con dati)
+  <?php
+    // Solo giorni con almeno una rilevazione
+    $giorni_scuola = array_keys($trend);
+    sort($giorni_scuola);
+
+    $serie_label = [];
+    $serie_perc  = [];
+    foreach ($giorni_scuola as $d) {
+        $p = $trend[$d]['presente']          ?? 0;
+        $a = $trend[$d]['assente']           ?? 0;
+        $r = $trend[$d]['ritardo']           ?? 0;
+        $u = $trend[$d]['uscita_anticipata'] ?? 0;
+        $tot = $p + $a + $r + $u;
+        $serie_label[] = date('d/m', strtotime($d));
+        $serie_perc[]  = $tot > 0 ? round($p * 100 / $tot, 1) : 0;
+    }
+  ?>
+  new Chart(document.getElementById('chart-trend'), {
+    type: 'line',
+    data: {
+      labels: <?= json_encode($serie_label) ?>,
+      datasets: [{
+        label: '% Presenze',
+        data: <?= json_encode($serie_perc) ?>,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.15)',
+        tension: 0.35,
+        borderWidth: 2.5,
+        pointRadius: 3,
+        pointBackgroundColor: '#3b82f6',
+        pointHoverRadius: 5,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => '% Presenze: ' + ctx.parsed.y + '%'
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+        y: {
+          min: 0, max: 100,
+          ticks: { font: { size: 10 }, callback: v => v + '%' },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        }
+      }
+    }
+  });
+
+  // SSE: aggiorna lo status "Sistema attivo" appena il Raspberry registra qualcuno
+  let stuSseTs = Math.floor(Date.now() / 1000);
+  function stuConnetti() {
+    const src = new EventSource('../api/eventi.php?since=' + stuSseTs);
+    src.onmessage = function(e) {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.tipo === 'reconnect') { src.close(); setTimeout(stuConnetti, 1000); return; }
+        if (d.timestamp) stuSseTs = d.timestamp;
+        if (d.studente_id) {
+          const ns = document.getElementById('nav-status');
+          const nt = document.getElementById('nav-status-text');
+          if (ns && nt) { ns.classList.remove('offline'); ns.classList.add('online'); nt.textContent = 'Sistema attivo'; }
+        }
+      } catch {}
+    };
+    src.onerror = function() { src.close(); setTimeout(stuConnetti, 3000); };
+  }
+  stuConnetti();
 </script>
 
 </body>

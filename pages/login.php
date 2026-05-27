@@ -147,13 +147,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     .brand-icon {
-      width: 48px; height: 48px;
-      background: linear-gradient(135deg, #1d3a6e, #2563eb);
-      border-radius: 14px;
+      width: 54px; height: 54px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 22px;
-      box-shadow: 0 4px 20px rgba(37,99,235,0.3);
+      filter: drop-shadow(0 4px 20px rgba(59,130,246,0.4));
     }
+    .brand-icon img { width: 100%; height: 100%; object-fit: contain; }
 
     .brand-text {
       display: flex; flex-direction: column;
@@ -442,7 +440,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- PANNELLO SINISTRO -->
     <div class="panel-left">
       <div class="brand">
-        <div class="brand-icon">🎓</div>
+        <div class="brand-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
         <div class="brand-text">
           <span class="brand-label">SchoolFaceID</span>
           <span class="brand-name">Accesso Docenti</span>

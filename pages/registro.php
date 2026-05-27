@@ -9,46 +9,51 @@ require_once '../includes/db.php';
 
 // Filtri
 $data_sel   = $_GET['data']   ?? date('Y-m-d');
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data_sel)) $data_sel = date('Y-m-d');
 $classe_sel = $_GET['classe'] ?? '';
 $stato_sel  = $_GET['stato']  ?? '';
+$cerca_sel  = trim($_GET['cerca'] ?? '');
 
 // Classi per il filtro
 $classi = $pdo->query("SELECT * FROM classi ORDER BY nome")->fetchAll();
 
-// Query presenze con filtri
-$where  = ["p.data = :data"];
+// Query presenze con filtri — TUTTI gli studenti, anche senza record (= assenti)
+$where  = ["u.ruolo = 'studente'", "u.attivo = 1"];
 $params = [':data' => $data_sel];
 
 if ($classe_sel) {
     $where[]              = "u.classe_id = :classe_id";
     $params[':classe_id'] = $classe_sel;
 }
+// Filtro stato: NULL = nessun record = assente
 if ($stato_sel === 'assente') {
-    $where[] = "(p.stato = 'assente' OR p.id IS NULL)";
+    $where[] = "(p.stato = 'assente' OR p.stato IS NULL)";
 } elseif ($stato_sel) {
     $where[]          = "p.stato = :stato";
     $params[':stato'] = $stato_sel;
 }
+if ($cerca_sel) {
+    $where[]            = "(LOWER(u.nome) LIKE :cerca_n OR LOWER(u.cognome) LIKE :cerca_c)";
+    $cerca_lower        = '%' . mb_strtolower($cerca_sel, 'UTF-8') . '%';
+    $params[':cerca_n'] = $cerca_lower;
+    $params[':cerca_c'] = $cerca_lower;
+}
 
 $where_sql = implode(' AND ', $where);
 
+// Filtro data SOLO nel LEFT JOIN — così gli studenti senza record vengono inclusi con p.* NULL
 $presenze = $pdo->prepare("
     SELECT
         u.id, u.nome, u.cognome, u.foto_path,
         c.nome AS classe,
         p.stato, p.ora_entrata, p.ora_uscita,
-        p.rilevato_da, p.note,
-        m.nome AS materia
+        p.rilevato_da, p.note
     FROM utenti u
-    LEFT JOIN presenze p     ON p.studente_id = u.id AND p.data = :data2
-    LEFT JOIN classi c       ON c.id = u.classe_id
-    LEFT JOIN orario o       ON o.id = p.orario_id
-    LEFT JOIN materie m      ON m.id = o.materia_id
-    WHERE u.ruolo = 'studente' AND u.attivo = 1
-    AND $where_sql
+    LEFT JOIN presenze p ON p.studente_id = u.id AND p.data = :data
+    LEFT JOIN classi c   ON c.id = u.classe_id
+    WHERE $where_sql
     ORDER BY c.nome, u.cognome, u.nome
 ");
-$params[':data2'] = $data_sel;
 $presenze->execute($params);
 $rows = $presenze->fetchAll();
 
@@ -57,6 +62,18 @@ $tot_presenti = count(array_filter($rows, fn($r) => $r['stato'] === 'presente'))
 $tot_ritardi  = count(array_filter($rows, fn($r) => $r['stato'] === 'ritardo'));
 $tot_uscite   = count(array_filter($rows, fn($r) => $r['stato'] === 'uscita_anticipata'));
 $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
+
+// Stato Raspberry + data formattata
+$cache_file = __DIR__ . '/../cache/ultimo_evento.json';
+$raspberry_online = false;
+if (file_exists($cache_file)) {
+    $raw = file_get_contents($cache_file);
+    $ev  = $raw ? json_decode($raw, true) : null;
+    $raspberry_online = is_array($ev) && isset($ev['timestamp']) && (time() - $ev['timestamp']) < 7200;
+}
+$giorni_it = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
+$mesi_it   = ['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+$data_fmt  = $giorni_it[date('w')] . ' ' . date('j') . ' ' . $mesi_it[(int)date('n')];
 ?>
 <!DOCTYPE html>
 <html lang="it">
@@ -120,12 +137,11 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
     }
     .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
     .nav-logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, #1e40af, #3b82f6);
-      border-radius: 10px;
+      width: 38px; height: 38px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; box-shadow: 0 0 20px rgba(59,130,246,0.35);
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.4));
     }
+    .nav-logo img { width: 100%; height: 100%; object-fit: contain; }
     .nav-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-white); }
     .nav-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
     .nav-links { display: flex; gap: 2px; }
@@ -139,7 +155,15 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
       background: rgba(59,130,246,0.12); color: var(--blue);
       box-shadow: inset 0 0 0 1px rgba(59,130,246,0.2);
     }
-    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 14px; }
+    .nav-date { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 20px; }
+    .nav-status.online  { background: rgba(34,197,94,0.12); color: var(--green); }
+    .nav-status.offline { background: rgba(239,68,68,0.12); color: var(--red); }
+    .nav-status-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .online  .nav-status-dot { background: var(--green); animation: pulse 2s infinite; }
+    .offline .nav-status-dot { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
     .btn-logout {
       padding: 6px 16px; background: transparent;
       border: 1px solid var(--border); border-radius: 8px;
@@ -185,6 +209,7 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
       gap: 14px; margin-bottom: 28px;
       animation: fadeUp 0.5s ease 0.05s both;
     }
+    @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
 
     .stat-card {
       background: var(--bg-card);
@@ -203,6 +228,7 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
     .stat-card.green::before  { background: var(--green); }
     .stat-card.red::before    { background: var(--red); }
     .stat-card.orange::before { background: var(--orange); }
+    .stat-card.yellow::before { background: var(--yellow); }
 
     .stat-label {
       font-size: 11px; font-family: 'JetBrains Mono', monospace;
@@ -214,8 +240,9 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
     .stat-card.green .stat-label  { color: var(--green); }
     .stat-card.red .stat-label    { color: var(--red); }
     .stat-card.orange .stat-label { color: var(--orange); }
+    .stat-card.yellow .stat-label { color: var(--yellow); }
 
-    .stat-value { font-size: 36px; font-weight: 700; letter-spacing: -0.04em; }
+    .stat-value { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }
 
     /* FILTRI */
     .filters {
@@ -389,7 +416,7 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
 <!-- NAVBAR -->
 <nav class="navbar">
   <a class="nav-brand" href="dashboard.php">
-    <div class="nav-logo">🎓</div>
+    <div class="nav-logo"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
     <div>
       <div class="nav-title">SchoolFaceID</div>
       <div class="nav-sub"><?= htmlspecialchars($_SESSION['utente_nome']) ?></div>
@@ -401,7 +428,12 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
     <a href="studenti.php"  class="nav-link">Studenti</a>
   </div>
   <div class="nav-right">
-    <a href="logout.php" class="btn-logout">Esci</a>
+    <span class="nav-date"><?= $data_fmt ?></span>
+    <div id="nav-status" class="nav-status <?= $raspberry_online ? 'online' : 'offline' ?>">
+      <div class="nav-status-dot"></div>
+      <span id="nav-status-text"><?= $raspberry_online ? 'Sistema attivo' : 'Offline' ?></span>
+    </div>
+    <a href="logout.php" class="btn-logout">Logout</a>
   </div>
 </nav>
 
@@ -419,10 +451,6 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
 
   <!-- STATS -->
   <div class="stats">
-    <div class="stat-card grey">
-      <div class="stat-label">Totale</div>
-      <div class="stat-value"><?= count($rows) ?></div>
-    </div>
     <div class="stat-card green">
       <div class="stat-label">Presenti</div>
       <div class="stat-value"><?= $tot_presenti ?></div>
@@ -434,6 +462,10 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
     <div class="stat-card orange">
       <div class="stat-label">Ritardi</div>
       <div class="stat-value"><?= $tot_ritardi ?></div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Uscite anticipate</div>
+      <div class="stat-value"><?= $tot_uscite ?></div>
     </div>
   </div>
 
@@ -465,6 +497,10 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
           <option value="uscita_anticipata" <?= $stato_sel === 'uscita_anticipata' ? 'selected' : '' ?>>Uscita anticipata</option>
         </select>
       </div>
+      <div class="filter-group">
+        <label>Cerca</label>
+        <input type="text" name="cerca" placeholder="Nome o cognome..." value="<?= htmlspecialchars($cerca_sel) ?>"/>
+      </div>
       <button type="submit" class="btn-filter">Filtra</button>
     </div>
   </form>
@@ -489,7 +525,6 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
           <th>Stato</th>
           <th>Entrata</th>
           <th>Uscita</th>
-          <th>Materia</th>
           <th>Rilevato da</th>
           <th></th>
         </tr>
@@ -526,7 +561,6 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
           <td class="time-cell">
             <?= $row['ora_uscita'] ? date('H:i', strtotime($row['ora_uscita'])) : '<span>—</span>' ?>
           </td>
-          <td><?= htmlspecialchars($row['materia'] ?? '—') ?></td>
           <td>
             <?php if ($row['rilevato_da']): ?>
               <span class="source-badge source-<?= $row['rilevato_da'] ?>">
@@ -550,5 +584,26 @@ $tot_assenti  = count($rows) - $tot_presenti - $tot_ritardi - $tot_uscite;
 
 </main>
 
+<script>
+  // SSE: aggiorna lo status "Sistema attivo" appena il Raspberry registra qualcuno
+  let regSseTs = Math.floor(Date.now() / 1000);
+  function regConnetti() {
+    const src = new EventSource('../api/eventi.php?since=' + regSseTs);
+    src.onmessage = function(e) {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.tipo === 'reconnect') { src.close(); setTimeout(regConnetti, 1000); return; }
+        if (d.timestamp) regSseTs = d.timestamp;
+        if (d.studente_id) {
+          const ns = document.getElementById('nav-status');
+          const nt = document.getElementById('nav-status-text');
+          if (ns && nt) { ns.classList.remove('offline'); ns.classList.add('online'); nt.textContent = 'Sistema attivo'; }
+        }
+      } catch {}
+    };
+    src.onerror = function() { src.close(); setTimeout(regConnetti, 3000); };
+  }
+  regConnetti();
+</script>
 </body>
 </html>

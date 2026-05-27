@@ -1,6 +1,10 @@
+deploy.sh
 composer.phar
 vendor/
 .DS_Store
 cache/ultimo_evento.json
 .env
 *.log
+.claude/
+CLAUDE.md
+CONTESTO_PROGETTO.md

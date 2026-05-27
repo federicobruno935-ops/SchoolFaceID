@@ -120,12 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     .brand { display: flex; align-items: center; gap: 14px; }
     .brand-icon {
-      width: 48px; height: 48px;
-      background: linear-gradient(135deg, #1d3a6e, #2563eb);
-      border-radius: 14px;
+      width: 54px; height: 54px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 22px; box-shadow: 0 4px 20px rgba(37,99,235,0.3);
+      filter: drop-shadow(0 4px 20px rgba(59,130,246,0.4));
     }
+    .brand-icon img { width: 100%; height: 100%; object-fit: contain; }
     .brand-label { font-size: 10px; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.15em; color: var(--blue); text-transform: uppercase; }
     .brand-name  { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 
@@ -211,7 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="panel-left">
       <div class="brand">
-        <div class="brand-icon">🎓</div>
+        <div class="brand-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
         <div>
           <div class="brand-label">SchoolFaceID</div>
           <div class="brand-name">Area Studenti</div>

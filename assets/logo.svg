@@ -1,0 +1,108 @@
+<svg width="680" height="680" viewBox="0 0 680 680" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>SchoolFaceID Logo</title>
+<desc>Logo tech minimalista con occhio centrato e elementi di riconoscimento facciale</desc>
+<defs>
+  <style>
+    .bg { fill: #070d1a; }
+    .ring { fill: none; stroke: #3b82f6; }
+    .ring-dim { fill: none; stroke: #1e3a5f; }
+    .dot { fill: #3b82f6; }
+    .scan { fill: none; stroke: #22c55e; stroke-width: 1.5; }
+    .eye-fill { fill: #0e1829; }
+    .iris { fill: #3b82f6; }
+    .pupil { fill: #070d1a; }
+    .glint { fill: #f0f6ff; }
+    .corner { fill: none; stroke: #3b82f6; stroke-width: 2.5; stroke-linecap: round; }
+    .corner-dim { fill: none; stroke: #1e3a5f; stroke-width: 1.5; stroke-linecap: round; }
+    .label-main { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; fill: #f0f6ff; letter-spacing: 2px; }
+    .label-sub { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 400; fill: #3b82f6; letter-spacing: 4px; }
+    .tick { fill: none; stroke: #3b82f6; stroke-width: 1; }
+    .grid-line { stroke: #1e3a5f; stroke-width: 0.5; fill: none; }
+  </style>
+</defs>
+
+<rect width="680" height="680" class="bg"/>
+
+<line x1="0" y1="170" x2="680" y2="170" class="grid-line"/>
+<line x1="0" y1="340" x2="680" y2="340" class="grid-line"/>
+<line x1="0" y1="510" x2="680" y2="510" class="grid-line"/>
+<line x1="170" y1="0" x2="170" y2="680" class="grid-line"/>
+<line x1="340" y1="0" x2="340" y2="680" class="grid-line"/>
+<line x1="510" y1="0" x2="510" y2="680" class="grid-line"/>
+
+<circle cx="340" cy="300" r="260" class="ring-dim" stroke-width="0.5"/>
+<circle cx="340" cy="300" r="200" class="ring-dim" stroke-width="0.5"/>
+<circle cx="340" cy="300" r="140" class="ring-dim" stroke-width="0.5"/>
+<circle cx="340" cy="300" r="230" class="ring" stroke-width="1.5" stroke-dasharray="4 8"/>
+
+<circle cx="340" cy="70" r="5" class="dot"/>
+<circle cx="570" cy="300" r="5" class="dot"/>
+<circle cx="340" cy="530" r="5" class="dot"/>
+<circle cx="110" cy="300" r="5" class="dot"/>
+<circle cx="503" cy="137" r="3" fill="#1e3a5f"/>
+<circle cx="503" cy="463" r="3" fill="#1e3a5f"/>
+<circle cx="177" cy="137" r="3" fill="#1e3a5f"/>
+<circle cx="177" cy="463" r="3" fill="#1e3a5f"/>
+
+<line x1="340" y1="70" x2="503" y2="137" class="tick" stroke-dasharray="3 6"/>
+<line x1="503" y1="137" x2="570" y2="300" class="tick" stroke-dasharray="3 6"/>
+<line x1="177" y1="137" x2="340" y2="70" class="tick" stroke-dasharray="3 6"/>
+<line x1="110" y1="300" x2="177" y2="137" class="tick" stroke-dasharray="3 6"/>
+
+<path d="M 170 300 Q 255 195 340 195 Q 425 195 510 300 Q 425 405 340 405 Q 255 405 170 300 Z" class="eye-fill" stroke="#3b82f6" stroke-width="2"/>
+
+<circle cx="340" cy="300" r="72" class="iris"/>
+<circle cx="340" cy="300" r="72" fill="none" stroke="#1d3a6e" stroke-width="4"/>
+
+<line x1="340" y1="232" x2="340" y2="248" stroke="#1d3a6e" stroke-width="2"/>
+<line x1="340" y1="352" x2="340" y2="368" stroke="#1d3a6e" stroke-width="2"/>
+<line x1="272" y1="300" x2="288" y2="300" stroke="#1d3a6e" stroke-width="2"/>
+<line x1="392" y1="300" x2="408" y2="300" stroke="#1d3a6e" stroke-width="2"/>
+<line x1="291" y1="251" x2="303" y2="263" stroke="#1d3a6e" stroke-width="1.5"/>
+<line x1="377" y1="337" x2="389" y2="349" stroke="#1d3a6e" stroke-width="1.5"/>
+<line x1="389" y1="251" x2="377" y2="263" stroke="#1d3a6e" stroke-width="1.5"/>
+<line x1="303" y1="337" x2="291" y2="349" stroke="#1d3a6e" stroke-width="1.5"/>
+
+<circle cx="340" cy="300" r="38" class="pupil"/>
+<circle cx="356" cy="284" r="8" class="glint" opacity="0.15"/>
+<circle cx="360" cy="280" r="4" class="glint" opacity="0.6"/>
+<circle cx="340" cy="300" r="5" fill="#22c55e"/>
+
+<line x1="178" y1="278" x2="260" y2="278" class="scan" stroke-dasharray="4 3"/>
+<line x1="420" y1="278" x2="502" y2="278" class="scan" stroke-dasharray="4 3"/>
+<line x1="178" y1="300" x2="262" y2="300" class="scan"/>
+<line x1="418" y1="300" x2="502" y2="300" class="scan"/>
+<line x1="178" y1="322" x2="260" y2="322" class="scan" stroke-dasharray="4 3"/>
+<line x1="420" y1="322" x2="502" y2="322" class="scan" stroke-dasharray="4 3"/>
+
+<polyline points="175,245 175,205 215,205" class="corner"/>
+<polyline points="505,245 505,205 465,205" class="corner"/>
+<polyline points="175,355 175,395 215,395" class="corner"/>
+<polyline points="505,355 505,395 465,395" class="corner"/>
+<polyline points="152,275 152,258 170,258" class="corner-dim"/>
+<polyline points="528,275 528,258 510,258" class="corner-dim"/>
+<polyline points="152,325 152,342 170,342" class="corner-dim"/>
+<polyline points="528,325 528,342 510,342" class="corner-dim"/>
+
+<text x="340" y="158" text-anchor="middle" class="label-sub">FACE · RECOGNITION · SYSTEM</text>
+
+<line x1="340" y1="95" x2="340" y2="108" stroke="#3b82f6" stroke-width="1.5"/>
+<line x1="340" y1="492" x2="340" y2="505" stroke="#3b82f6" stroke-width="1.5"/>
+<line x1="135" y1="300" x2="148" y2="300" stroke="#3b82f6" stroke-width="1.5"/>
+<line x1="532" y1="300" x2="545" y2="300" stroke="#3b82f6" stroke-width="1.5"/>
+
+<text x="340" y="492" text-anchor="middle" class="label-main">SchoolFaceID</text>
+
+<line x1="210" y1="504" x2="470" y2="504" stroke="#3b82f6" stroke-width="1" stroke-dasharray="2 4"/>
+<circle cx="210" cy="504" r="3" class="dot"/>
+<circle cx="470" cy="504" r="3" class="dot"/>
+
+<line x1="40" y1="40" x2="80" y2="40" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="40" y1="40" x2="40" y2="80" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="640" y1="40" x2="600" y2="40" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="640" y1="40" x2="640" y2="80" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="40" y1="640" x2="80" y2="640" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="40" y1="640" x2="40" y2="600" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="640" y1="640" x2="600" y2="640" stroke="#1e3a5f" stroke-width="0.8"/>
+<line x1="640" y1="640" x2="640" y2="600" stroke="#1e3a5f" stroke-width="0.8"/>
+</svg>

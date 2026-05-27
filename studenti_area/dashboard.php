@@ -28,9 +28,17 @@ foreach ($stmt->fetchAll() as $r) $stats[$r['stato']] = (int)$r['tot'];
 $totale_giorni = array_sum($stats);
 $perc_presenze = $totale_giorni > 0 ? round(($stats['presente'] / $totale_giorni) * 100) : 0;
 
-// Storico ultime 30 presenze
-$stmt = $pdo->prepare("SELECT * FROM presenze WHERE studente_id = ? ORDER BY data DESC, id DESC LIMIT 30");
-$stmt->execute([$sid]);
+// Storico con filtro
+$stati_validi = ['tutti', 'presente', 'assente', 'ritardo', 'uscita_anticipata'];
+$filtro = in_array($_GET['filtro'] ?? 'tutti', $stati_validi) ? $_GET['filtro'] : 'tutti';
+
+if ($filtro === 'tutti') {
+    $stmt = $pdo->prepare("SELECT * FROM presenze WHERE studente_id = ? ORDER BY data DESC, id DESC");
+    $stmt->execute([$sid]);
+} else {
+    $stmt = $pdo->prepare("SELECT * FROM presenze WHERE studente_id = ? AND stato = ? ORDER BY data DESC, id DESC");
+    $stmt->execute([$sid, $filtro]);
+}
 $storico = $stmt->fetchAll();
 
 // Ultimi 7 giorni (una sola query)
@@ -118,12 +126,11 @@ $stato_oggi = $presenza_oggi['stato'] ?? null;
 
     .nav-brand { display: flex; align-items: center; gap: 12px; }
     .nav-icon {
-      width: 40px; height: 40px;
-      background: linear-gradient(135deg, #1d3a6e, #2563eb);
-      border-radius: 11px;
+      width: 42px; height: 42px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px; box-shadow: 0 4px 16px rgba(37,99,235,0.3);
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.4));
     }
+    .nav-icon img { width: 100%; height: 100%; object-fit: contain; }
     .nav-info strong { display: block; font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
     .nav-info span   { font-size: 12px; color: var(--text-muted); }
 
@@ -228,6 +235,22 @@ $stato_oggi = $presenza_oggi['stato'] ?? null;
     .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; }
     .card-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.02em; }
 
+    .filtri-storico { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+    .filtro-btn {
+      padding:6px 14px; border-radius:20px;
+      font-family:'Sora',sans-serif; font-size:12px; font-weight:500;
+      background:var(--bg-card2); border:1px solid var(--border);
+      color:var(--text-muted); text-decoration:none;
+      transition:all 0.2s; cursor:pointer;
+    }
+    .filtro-btn:hover { border-color:rgba(255,255,255,0.15); color:var(--text-white); }
+    .filtro-btn.attivo { background:var(--blue); border-color:var(--blue); color:#fff; box-shadow:0 4px 12px rgba(59,130,246,0.25); }
+    .filtro-btn.attivo.presente { background:var(--green); border-color:var(--green); box-shadow:0 4px 12px rgba(34,197,94,0.25); }
+    .filtro-btn.attivo.assente { background:var(--red); border-color:var(--red); box-shadow:0 4px 12px rgba(239,68,68,0.25); }
+    .filtro-btn.attivo.ritardo { background:var(--orange); border-color:var(--orange); box-shadow:0 4px 12px rgba(249,115,22,0.25); }
+    .filtro-btn.attivo.uscita_anticipata { background:var(--yellow); border-color:var(--yellow); color:#0e1829; box-shadow:0 4px 12px rgba(234,179,8,0.25); }
+    .filtro-count { font-family:'JetBrains Mono',monospace; opacity:0.7; margin-left:4px; }
+
     /* Barra % */
     .perc-bar-wrap { margin-bottom: 24px; }
     .perc-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
@@ -304,7 +327,7 @@ $stato_oggi = $presenza_oggi['stato'] ?? null;
 
 <nav class="navbar">
   <div class="nav-brand">
-    <div class="nav-icon">🎓</div>
+    <div class="nav-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
     <div class="nav-info">
       <strong>SchoolFaceID</strong>
       <span>Area studente — <?= htmlspecialchars($_SESSION['studente_nome']) ?></span>
@@ -375,7 +398,7 @@ $stato_oggi = $presenza_oggi['stato'] ?? null;
   <div class="grid-main">
 
     <div class="card">
-      <div class="card-title">Storico presenze</div>
+      <div class="card-title">Ultimi 7 giorni</div>
 
       <!-- Ultimi 7 giorni -->
       <div class="settimana">
@@ -401,10 +424,29 @@ $stato_oggi = $presenza_oggi['stato'] ?? null;
         </div>
       </div>
 
+      <!-- Filtri -->
+      <div class="filtri-storico">
+        <?php
+          $filtri = [
+            'tutti'             => ['Tutti',             $totale_giorni],
+            'presente'          => ['Presenze',          $stats['presente']],
+            'assente'           => ['Assenze',           $stats['assente']],
+            'ritardo'           => ['Ritardi',           $stats['ritardo']],
+            'uscita_anticipata' => ['Uscite anticipate', $stats['uscita_anticipata']],
+          ];
+          foreach ($filtri as $key => [$label, $count]):
+            $attivo = $filtro === $key ? 'attivo ' . $key : '';
+        ?>
+          <a href="?filtro=<?= $key ?>" class="filtro-btn <?= $attivo ?>">
+            <?= $label ?><span class="filtro-count"><?= $count ?></span>
+          </a>
+        <?php endforeach; ?>
+      </div>
+
       <!-- Tabella -->
       <?php if (empty($storico)): ?>
         <div style="color:var(--text-muted); font-size:13px; text-align:center; padding:20px 0;">
-          Nessuna presenza registrata.
+          Nessuna registrazione per questo filtro.
         </div>
       <?php else: ?>
         <table>

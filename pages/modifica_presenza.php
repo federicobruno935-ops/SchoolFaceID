@@ -45,29 +45,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ora_uscita   = $_POST['ora_uscita']   ?: null;
     $note         = substr($_POST['note'] ?? '', 0, 500);
 
-    if ($presenza) {
-        // Aggiorna presenza esistente
-        $stmt = $pdo->prepare("
-            UPDATE presenze 
-            SET stato = ?, ora_entrata = ?, ora_uscita = ?, note = ?, rilevato_da = 'manuale'
-            WHERE id = ?
-        ");
-        $stmt->execute([$stato, $ora_entrata, $ora_uscita, $note, $presenza['id']]);
-    } else {
-        // Crea nuova presenza manuale
-        $stmt = $pdo->prepare("
-            INSERT INTO presenze (studente_id, data, ora_entrata, ora_uscita, stato, note, rilevato_da)
-            VALUES (?, ?, ?, ?, ?, ?, 'manuale')
-        ");
-        $stmt->execute([$studente_id, $data_sel, $ora_entrata, $ora_uscita, $stato, $note]);
+    // Applica regole in base allo stato
+    switch ($stato) {
+        case 'presente':
+            $ora_uscita = null;  // solo entrata
+            break;
+        case 'assente':
+            $ora_entrata = null;
+            $ora_uscita  = null;
+            break;
+        case 'ritardo':
+            $ora_uscita = null;  // solo entrata
+            break;
+        case 'uscita_anticipata':
+            if (!$ora_uscita) {
+                $errore = 'Per "uscita anticipata" è obbligatorio inserire l\'ora di uscita.';
+            }
+            break;
     }
 
-    $successo = 'Presenza aggiornata con successo.';
+    if (!$errore) {
+        if ($presenza) {
+            $stmt = $pdo->prepare("
+                UPDATE presenze
+                SET stato = ?, ora_entrata = ?, ora_uscita = ?, note = ?, rilevato_da = 'manuale'
+                WHERE id = ?
+            ");
+            $stmt->execute([$stato, $ora_entrata, $ora_uscita, $note, $presenza['id']]);
+        } else {
+            $stmt = $pdo->prepare("
+                INSERT INTO presenze (studente_id, data, ora_entrata, ora_uscita, stato, note, rilevato_da)
+                VALUES (?, ?, ?, ?, ?, ?, 'manuale')
+            ");
+            $stmt->execute([$studente_id, $data_sel, $ora_entrata, $ora_uscita, $stato, $note]);
+        }
 
-    // Ricarica presenza aggiornata
-    $stmt = $pdo->prepare("SELECT * FROM presenze WHERE studente_id = ? AND data = ? ORDER BY id DESC LIMIT 1");
-    $stmt->execute([$studente_id, $data_sel]);
-    $presenza = $stmt->fetch();
+        $successo = 'Presenza aggiornata con successo.';
+
+        // Ricarica presenza aggiornata
+        $stmt = $pdo->prepare("SELECT * FROM presenze WHERE studente_id = ? AND data = ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$studente_id, $data_sel]);
+        $presenza = $stmt->fetch();
+    }
 }
 
 $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome'],0,1));
@@ -133,12 +152,11 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
 
     .nav-brand { display: flex; align-items: center; gap: 12px; }
     .nav-icon {
-      width: 40px; height: 40px;
-      background: linear-gradient(135deg, #1d3a6e, #2563eb);
-      border-radius: 11px;
+      width: 42px; height: 42px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px; box-shadow: 0 4px 16px rgba(37,99,235,0.3);
+      filter: drop-shadow(0 0 12px rgba(59,130,246,0.4));
     }
+    .nav-icon img { width: 100%; height: 100%; object-fit: contain; }
     .nav-info strong { display: block; font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
     .nav-info span   { font-size: 12px; color: var(--text-muted); }
 
@@ -254,6 +272,17 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
       transition: border-color 0.2s;
     }
     .form-group input[type="time"] { color-scheme: dark; }
+    .form-group input:disabled {
+      background: rgba(255,255,255,0.02);
+      color: var(--text-dim); cursor: not-allowed;
+      border-color: rgba(255,255,255,0.04);
+    }
+    .form-group.obbligatorio label::after {
+      content: ' *'; color: var(--yellow);
+    }
+    .form-group.obbligatorio input {
+      border-color: rgba(234,179,8,0.4);
+    }
     .form-group input::placeholder,
     .form-group textarea::placeholder { color: var(--text-dim); }
     .form-group input:focus,
@@ -333,7 +362,7 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
 <!-- NAVBAR -->
 <nav class="navbar">
   <div class="nav-brand">
-    <div class="nav-icon">🎓</div>
+    <div class="nav-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
     <div class="nav-info">
       <strong>SchoolFaceID</strong>
       <span>Dashboard docente &bull; <?= htmlspecialchars($_SESSION['utente_nome']) ?></span>
@@ -384,6 +413,9 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
   <?php if ($successo): ?>
     <div class="alert alert-success"><?= htmlspecialchars($successo) ?></div>
   <?php endif; ?>
+  <?php if ($errore): ?>
+    <div class="alert alert-error"><?= htmlspecialchars($errore) ?></div>
+  <?php endif; ?>
 
   <!-- FORM -->
   <div class="form-card">
@@ -428,16 +460,16 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
         </div>
 
         <!-- ORA ENTRATA -->
-        <div class="form-group">
-          <label>Ora entrata</label>
-          <input type="time" name="ora_entrata"
+        <div class="form-group" id="gruppo_entrata">
+          <label for="ora_entrata">Ora entrata</label>
+          <input type="time" name="ora_entrata" id="ora_entrata"
                  value="<?= $presenza['ora_entrata'] ? substr($presenza['ora_entrata'], 0, 5) : '' ?>"/>
         </div>
 
         <!-- ORA USCITA -->
-        <div class="form-group">
-          <label>Ora uscita</label>
-          <input type="time" name="ora_uscita"
+        <div class="form-group" id="gruppo_uscita">
+          <label for="ora_uscita">Ora uscita</label>
+          <input type="time" name="ora_uscita" id="ora_uscita"
                  value="<?= $presenza['ora_uscita'] ? substr($presenza['ora_uscita'], 0, 5) : '' ?>"/>
         </div>
 
@@ -469,5 +501,54 @@ $iniziali = strtoupper(substr($studente['nome'],0,1) . substr($studente['cognome
   </div>
 
 </main>
+
+<script>
+  const entrataIn   = document.getElementById('ora_entrata');
+  const uscitaIn    = document.getElementById('ora_uscita');
+  const gruppoEntrata = document.getElementById('gruppo_entrata');
+  const gruppoUscita  = document.getElementById('gruppo_uscita');
+
+  function applicaRegole() {
+    const stato = document.querySelector('input[name="stato"]:checked')?.value;
+
+    // reset
+    entrataIn.disabled = false;
+    uscitaIn.disabled  = false;
+    uscitaIn.required  = false;
+    gruppoEntrata.classList.remove('obbligatorio');
+    gruppoUscita.classList.remove('obbligatorio');
+
+    switch (stato) {
+      case 'presente':
+        // solo entrata modificabile
+        uscitaIn.disabled = true;
+        uscitaIn.value    = '';
+        break;
+      case 'assente':
+        // né entrata né uscita
+        entrataIn.disabled = true; entrataIn.value = '';
+        uscitaIn.disabled  = true; uscitaIn.value  = '';
+        break;
+      case 'ritardo':
+        // solo entrata
+        uscitaIn.disabled = true;
+        uscitaIn.value    = '';
+        break;
+      case 'uscita_anticipata':
+        // uscita obbligatoria
+        uscitaIn.required = true;
+        gruppoUscita.classList.add('obbligatorio');
+        break;
+    }
+  }
+
+  document.querySelectorAll('input[name="stato"]').forEach(el => {
+    el.addEventListener('change', applicaRegole);
+  });
+
+  // applica al caricamento
+  applicaRegole();
+</script>
+
 </body>
 </html>

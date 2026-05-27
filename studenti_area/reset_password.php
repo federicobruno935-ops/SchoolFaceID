@@ -59,7 +59,8 @@ if ($record && $_SERVER['REQUEST_METHOD'] === 'POST') {
     .card { background:var(--bg-card); border:1px solid var(--border); border-radius:24px; padding:48px 44px; width:100%; max-width:460px; box-shadow:0 40px 80px rgba(0,0,0,0.5); animation:fadeUp 0.5s ease both; }
     @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
     .brand { display:flex; align-items:center; gap:12px; margin-bottom:32px; }
-    .brand-icon { width:42px; height:42px; background:linear-gradient(135deg,#1d3a6e,#2563eb); border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+    .brand-icon { width:48px; height:48px; display:flex; align-items:center; justify-content:center; filter:drop-shadow(0 4px 16px rgba(59,130,246,0.4)); }
+    .brand-icon img { width:100%; height:100%; object-fit:contain; }
     .brand-name { font-size:16px; font-weight:700; }
     .brand-sub  { font-size:12px; color:var(--text-muted); }
     h1 { font-size:26px; font-weight:700; letter-spacing:-0.03em; margin-bottom:6px; }
@@ -86,7 +87,7 @@ if ($record && $_SERVER['REQUEST_METHOD'] === 'POST') {
   <div class="card">
 
     <div class="brand">
-      <div class="brand-icon">🎓</div>
+      <div class="brand-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
       <div>
         <div class="brand-name">SchoolFaceID</div>
         <div class="brand-sub">Area Studenti — Reimposta password</div>

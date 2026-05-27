@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $errore = 'Inserisci un indirizzo email valido.';
         } else {
-            $stmt = $pdo->prepare("SELECT id, nome, cognome FROM utenti WHERE email=? AND ruolo IN ('professore','admin') AND attivo=1");
+            $stmt = $pdo->prepare("SELECT id, nome, cognome FROM utenti WHERE email=? AND attivo=1");
             $stmt->execute([$email]);
             $utente = $stmt->fetch();
 
@@ -27,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $link  = BASE_URL . '/pages/reset_password.php?token=' . $token;
                 invia_reset_password($email, $utente['nome'] . ' ' . $utente['cognome'], $link);
             }
-            // Messaggio generico — non rivela se l'email esiste (sicurezza)
             $messaggio = 'Se l\'email è registrata riceverai il link entro pochi minuti.';
         }
     }
@@ -58,7 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
     .panel-left { background:var(--bg-card); padding:48px 44px; display:flex; flex-direction:column; gap:28px; border-right:1px solid var(--border); }
     .brand { display:flex; align-items:center; gap:14px; }
-    .brand-icon { width:48px; height:48px; background:linear-gradient(135deg,#1d3a6e,#2563eb); border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; box-shadow:0 4px 20px rgba(37,99,235,0.3); }
+    .brand-icon { width:54px; height:54px; display:flex; align-items:center; justify-content:center; filter:drop-shadow(0 4px 20px rgba(59,130,246,0.4)); }
+    .brand-icon img { width:100%; height:100%; object-fit:contain; }
     .brand-label { font-size:10px; font-family:'JetBrains Mono',monospace; letter-spacing:0.15em; color:var(--blue); text-transform:uppercase; }
     .brand-name { font-size:22px; font-weight:700; letter-spacing:-0.02em; }
     .tagline { font-size:15px; color:var(--text-muted); line-height:1.7; }
@@ -90,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="panel-left">
       <div class="brand">
-        <div class="brand-icon">🎓</div>
+        <div class="brand-icon"><img src="../assets/icon.svg" alt="SchoolFaceID"></div>
         <div>
           <div class="brand-label">SchoolFaceID</div>
           <div class="brand-name">Recupera Password</div>
